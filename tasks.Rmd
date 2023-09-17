@@ -1,0 +1,248 @@
+---
+title: "Aufgaben zur Hausarbeit 1"
+author: "Alisa Sevruk"
+date: "2023-04-27"
+output: html_document
+---
+
+## TASK 1
+
+Laden Sie den Datensatz "kidney.csv" herrunter. Die Variablenbeschreibung finden Sie unter UCI Machine Learning Repository. Lesen Sie die Daten in R ein. Der Daten- satz enthält 11 numerische Variablen und 14 nominalskalierte Variablen. Zuerst entfernen Sie aus dem Datensatz alle Stichproben (also Zeilen) mit den fehlenden Werten. Wandeln Sie die Variable classification in eine binäare Variable um, so dass Ausprägungen ckd den Wert 1 bekommen und Auspraägungen notckd den Wert 0.
+
+```{r}
+# Importing the csv file
+kidney <- read.csv("data/kidney.csv")
+
+# Drop the rows with not defined entries (drop NA)
+kidney_clean <- na.omit(kidney)
+
+# Convert "classification" column to binary
+kidney_clean$classification <- as.numeric(kidney_clean$classification == "ckd")
+```
+
+1.  Schätzen Sie ein logistisches Regressionsmodell mit der Zielvariable classification und den Kovariablen bp, sg und pot (3., 4. und 15. Spalte im Datensatz). Sind alle Kovariablen in diesem Modell signifikant? Was können Sie über die Güte der Anpassung dieses Modells sagen? (2 Punkte)
+
+```{r}
+# Fit a logistic regression model
+model1 <- glm(classification ~ bp + sg + pot, data = kidney_clean, family = binomial)
+summary(model1)
+
+predictions_prob <- predict(model1, newdata = kidney_clean, type = "response")
+predictions <- ifelse(predictions_prob > 0.5, 1, 0)
+confusionMatrix <- table(Predicted = predictions, Actual = kidney_clean$classification)
+print(confusionMatrix)
+precision <- confusionMatrix[2, 2] / sum(confusionMatrix[2, ])
+recall <- confusionMatrix[2, 2] / sum(confusionMatrix[, 2])
+f_score = 2 * (precision * recall) / (precision + recall)
+
+# f score
+cat("F-score:", f_score, "\n")
+```
+
+Die Kovariablen bp und sg sind signifikant, pot ist nicht signifikant mit einem p-value von ca. 0.42 \> 0.05. Durch die Null Devianz können wir Aussage über die Güte der Modellanpassung treffen. Die Null Devianz hat einen Wert von 270.37 und wir minimieren zu dem Wert 98.89, was einer Reduktion um ca. 64% entspricht. Desweitern hat das Modell einen f-score von 0.925, welcher eine gute Anpassung anzeigt.
+
+2.  Testen Sie mit einem geeigneten Verfahren, ob das kleinere Modell ohne Variable pot genau so gut wie das Modell aus Punkt 1 ist. Welches Modell würden Sie bevorzugen? (2 Punkte)
+
+```{r}
+# Fit the logistic regression model with bp, sg
+model2 <- glm(classification ~ bp + sg, data = kidney_clean, family = binomial)
+summary(model2)
+
+anova(model1, model2, test = "Chisq")
+BIC(model1)
+BIC(model2)
+```
+
+Basierend darauf, dass der p-value 0.382\>0.05 ist und es somit keinen signifikanten Unterschied zwischen den Modellen gibt, können wir mithilfe von AIC und BIC Aussage über die Preferenz treffen. Da beide im zweiten Modell bessere Werte liefern, werde ich das Modell ohne pot auswählen. Es ist anzumerken, dass die Werte sich nicht stark unterscheiden. Im Anblick der kleineren Größe und somit geringeren Komplexität des zweiten Modells fällt die Entscheidung jedoch von beiden Augenmerken auf das zweite Modell.
+
+3.  Gruppieren Sie die Daten des bevorzugten Modells aus Punkt 2 und schätzen Sie das entsprechende Modell. Was kann man über die Anpassung dieses Modells sagen? F̈ühren Sie auch die Residualanalyse durch und kommentieren Sie das Ergebnis. (4 Punkte)
+
+```{r}
+
+# group the data
+X <- data.matrix(kidney_clean[, c("bp", "sg")])
+XU <- unique(X)
+ZU <- N <- rep(NA, nrow(XU))
+
+for (i in 1:nrow(XU)) {
+  ind <- which(apply(t(t(X) == XU[i, ]), 1, sum) == 2)
+  ZU[i] <- sum(kidney_clean$classification[ind])
+  N[i] <- length(ind)
+}
+
+# Fit the logistic regression model with grouped data
+ZU.fit <- glm(cbind(ZU, N - ZU) ~ XU, family = binomial)
+summary(ZU.fit)
+BIC(ZU.fit)
+```
+
+Wir sehen, dass sowohl AIC als auch BIC wesentlich geringer im gruppierten Modell sind, wenn verglichen zu den beiden vorigen Modellen. Dies weist darauf hin, dass die Gruppierung der Daten ein besseres Modell hervorbringt. Weiters können wir mittels der Reduktion der Null Devianz um 79% sagen, dass auch hier das Modell sehr gut abschneidet.
+
+```{r}
+
+plot(ZU.fit)
+plot(density(resid(ZU.fit)))
+qqnorm(resid(ZU.fit))
+qqline(resid(ZU.fit))
+eta <- ZU.fit$linear.predictors
+plot(eta, resid(ZU.fit))
+```
+
+Im Residual-vs-Fitted-Plot konzentrieren wir uns auf drei Aspekte:
+
+1.  Bewegen sich die Residuen zufällig um die Linie bei Null? Das würde darauf hindeuten, dass die Beziehung linear ist.
+
+2.  Ungefähr betrachtet bilden die Residuen ein waagerechtes Band um die Null-Linie, was die Annahme der Homoskedastizität unterstützt.
+
+3.  Es sollten keine ausgeprägten Muster und keine extremen Ausreißer vorhanden sein.
+
+In unserer Analyse stellen wir fest, dass die Punkte leicht in den positiven Bereich der Y-Achse verschoben sind und die Streuung inkonsistent erscheint. Zunächst sehen wir eine hohe Varianz, die mit zunehmenden X-Werten abnimmt.
+
+Der Normal-Q-Q-Plot sollte ohne zusätzliche Angaben aufzeigen, wie gut die Residuen einer Normalverteilung entsprechen. Im Modellplot werden Pearson-Residuen verwendet, weshalb ich den Q-Q-Plot separat erneut dargestellt habe. Dabei ist zu erkennen, dass unsere Residuen ungefähr auf der Linie liegen (mit einem Ausreißer).
+
+Anhand des Scale-Location-Plots lässt sich die Verteilung der Varianz optisch beurteilen. Bei einer horizontalen Linie nehmen wir konstante Varianzen an. Wenn jedoch eine ansteigende oder abfallende Kurve zu sehen ist, liegt der Verdacht auf Heteroskedastizität vor, wie in unserem Beispiel. Außerdem sollte darauf geachtet werden, dass die Punkte zufällig verteilt erscheinen, was bei uns nicht der Fall ist.
+
+Der Residual-vs-Leverage-Plot veranschaulicht grafisch, welche Punkte den größten Einfluss auf die Koeffizienten des Modells haben. Dabei repräsentieren die gestrichelten Linien der Cooks-Distanz eine Grenze, die besonders einflussreiche Punkte identifiziert. In unserem Fall trifft dies beispielsweise auf die dreizehnte Beobachtung zu.
+
+## TASK 2
+
+Laden Sie den Datensatz "KenyaDHS.txt" herrunter.
+
+1.  Schätzen Sie ein verallgemeinertes lineares Modell mit numberlivingchild als Zielvariable und assetindex, BMI, agefirstbirth, breastfeeding und yearsofedu als Kovariablen. Nehmen Sie an, dass die Zielvariable Poisson-verteilt ist und benutzen Sie eine kanonische Linkfunktion. Beurteilen Sie die Anpassung des Modells. Sind alle Kovariablen signifikant? Interpretieren Sie die geschätzten Koeffizienten. Gibt es Anzeichen einer Überdispersion in den Daten? Führen Sie eine Residualanalyse durch. Ist die Annahme einer Poisson Verteilung der Zielvariable gerechtfertigt? (6 Punkte)
+
+```{r}
+# Importing the csv file
+KenyaDHS <- read.table("data/KenyaDHS.txt", sep=' ', header=TRUE)
+
+# Fit the poisson regression model
+model1 <- glm(numberlivingchild ~ assetindex + BMI + agefirstbirth + breastfeeding + yearsofedu, data = KenyaDHS, family = poisson)
+
+summary(model1)
+
+dispersion <- sum(resid(model1, type = "pearson")^2) / model1$df.residual
+cat("Dispersion: ", dispersion, "\n")
+```
+
+Wir sehen zuerst, dass alle Kovariablen signifikant sind. Desweiteren können wir sehen, dass die Kovariablen ca. 17% der Null Devianz reduzieren. Dieser Wert ist nicht vernachlässigbar, aber auch nicht sehr hoch.
+
+Wir können den Einfluss der Kovariablen durch die Werte der Estimate Spalte analysieren. Demnach lässt sich sagen, dass ein Anstieg in den Werten assetIndex, agefirstbirth, yearsofedu die Anzahl an Kindern negativ beinflusst und ein Anstieg im BMI und breastfeeding positiv. AssetINdex gibt Aufschluss über den Wohlstand, agefirstbirth Alter bei der Geburt des ersten Kindes, yearsofedu Jahre der Ausbildung, BMI body mass index und breastfeeding, ob gestillt wurde.
+
+Der Wert der Dispersion ist ca. 1.04 und so nahe zu 1 und damit gibt es keine Überdispersion in den Daten.
+
+```{r}
+plot(model1)
+qqnorm(resid(model1))
+qqline(resid(model1))
+```
+
+Die Residuen im Residual-vs-Fitted-Plot sind um die Null-Linie nicht symmetrisch verteilt. Weiterhin ist ein deutliches Muster erkennbar, und die Varianz scheint ungleichmäßig zu sein. Der Normal-Q-Q-Plot sieht ok aus. Beim Scale-Location-Plot sind keine einflussreichen Punkte erkennbar. Schließlich zeigt der Residual-vs-Leverage-Plot eine annähernd horizontale Linie, was auf Homoskedastizität hindeutet, und ein deutliches Muster ist ebenfalls zu erkennen.
+
+```{r}
+deviance_statistic <- model1$deviance
+degrees_of_freedom <- model1$df.residual
+
+p_value <- 1 - pchisq(deviance_statistic, degrees_of_freedom)
+cat("P-value:", p_value, "\n")
+```
+
+Da es keine Überdisperision in den Daten gibt und da der p-value im Chi-squared goodness-of-fit Test auf Signifikanz hindeutet, können wir annehmen dass die Poisson Verteiliung eine gute Annahme ist.
+
+2.  Schätzen Sie das Modell aus Punkt 1 unter der Annahme, dass die Zielvariable einer negativen Binomialverteilung folgt. Beurteilen Sie die Anpassung des Modells und vergleichen Sie dieses Modell mit einem geeigneten Kriterium mit dem Modell aus Punkt 1. Führen Sie die Residualanalyse durch und interpretieren Sie das Ergebnis. (3 Punkte)
+
+```{r}
+library(MASS)
+model2 <- glm.nb(numberlivingchild ~ assetindex + BMI + agefirstbirth + breastfeeding + yearsofedu, data = KenyaDHS)
+summary(model2)
+BIC(model1)
+BIC(model2)
+```
+
+Wie im ersten Model sind alle Kovariablen signifikant. Desweiteren sind sowohl BIC als auch AIC kaum unterscheidlich, was eine Entscheidung schwer macht welches der Modelle bevorzugt werden sollte. Die Güte der Anpassung des Modells ist ähnlich dem des ersten Modells.
+
+```{r}
+plot(model2)
+qqnorm(resid(model2))
+qqline(resid(model2))
+```
+
+Da sich die beiden Modelle nur wenig unterscheiden, und da die Plots sehr ähnlich ausfallen ist die Analyse für das zweite Modell dieselbe wie für das erste Modell.
+
+## TASK 3
+
+Laden Sie den Datensatz "RealEstate.txt" herrunter. Die Variablenbeschreibung finden Sie unter UCI Machine Learning Repository. Belassen Sie im Datensatz nur die Variablen HouseAge, Distance, NumberStores, Latitude, Price.
+
+1.  Schätzen Sie das einfache lineare Modell mit der Zielvariable Preis und den Ko- variablen HouseAge, Distance, NumberStores. Sind alle Kovariablen im Modell signifikant? Interpretieren Sie die gesch ̈atzte Koeffizienten. Beurteilen Sie die An- passung des Modells, führen Sie die Residualanalyse durch und interpretieren Sie das Ergebnis. (4 Punkte)
+
+```{r}
+data <- read.table("data/RealEstate.txt", sep=" ", header = TRUE)
+data <- data[, c("HouseAge", "Distance", "NumberStores", "Latitude", "Price")]
+
+model1 <- lm(Price ~ HouseAge + Distance + NumberStores, data = data)
+summary(model1)
+```
+Wir sehen zuerst, dass alle Kovariablen signifikant sind. 
+
+Desweiteren können wir sehen, dass der angepasst R2 Score von 0.537 nicht optimal ist
+und die Güte der Anpassung des Modells daher verbessert werden sollte.
+
+Wieder können wir den Einfluss der Kovariablen durch die Werte der Estimate Spalte analysieren. Demnach lässt sich sagen, dass ein Anstieg in den Werten des Haus Alters und der Distanz den Preis negativ beeinflusst. Auf der anderen Seite hat die Anzahl der Geschäfte im Umfeld einen erheblich positiven Einfluss.
+
+
+```{r}
+plot(model1)
+```
+Im Residual-vs-Fitted-Plot zeigt sich eine gleichbleibende Varianz und die Residuen verteilen sich annähernd symmetrisch um die Null-Linie. Diese Beobachtungen legen nahe, dass die Residuen normalverteilt und homoskedastisch sind. Im Normal-Q-Q-Plot ist ersichtlich, dass die Residuen bis auf das obere Ende gut einer Normalverteilung entsprechen. Der Scale-Location-Plot präsentiert eine horizontale Linie, die eine weitere Bestätigung für Homoskedastizität darstellt, und es sind keine offensichtlichen Muster erkennbar. Abschließend zeigt der Residual-vs-Leverage-Plot keine einflussreichen Punkte.
+
+2.  Ergänzen Sie das Modell aus Punkt 1 mit quadrierten Werten von HouseAge und Distance. Sind diese signifikant? Warum ist es sinnvoll für diese Variablen auch die quadrierten Werte aufzunehmen? Beurteilen Sie die Anpassung dieses Modells und führen Sie die Residualanalyse durch. Vergleichen Sie die Ergebnisse mit denen aus Punkt 1. (3 Punkte)
+
+```{r}
+data$HouseAge_sq <- data$HouseAge^2
+data$Distance_sq <- data$Distance^2
+
+model2 <- lm(Price ~ HouseAge + Distance + NumberStores + HouseAge_sq + Distance_sq, data = data)
+summary(model2)
+```
+Die neu hinzugefügten Kovariablen sind auch signifikant. Desweiteren erkennen wir einen
+moderaten Anstieg im angepassten R2 Score von 0.5377 auf 0.6051.
+
+Es kann sinnvoll sein, die quadrierten Werte dieser Variablen in das lineare Modell aufzunehmen, weil dadurch nichtlineare Beziehungen zwischen den unabhängigen Variablen und der abhängigen Variable berücksichtigt werden können. In vielen realen Situationen sind die Beziehungen zwischen den Variablen nicht immer linear. Durch das Hinzufügen der quadrierten Variablen kann das Modell möglicherweise besser an die tatsächliche Struktur der Daten angepasst werden, was zu einer Verbesserung der Anpassungsgüte (in diesem Fall des R2-Werts) führt.
+
+```{r}
+plot(model2)
+```
+Im neuen Residual-vs-Fitted-Plot zeigt sich ein ähnliches Bild wie zuvor, mit konstanter Varianz, keinem ersichtlichen Muster und symmetrischer Verteilung der Residuen. Ein einzelner Ausreißer sollte die Schlussfolgerung, dass es sich um homoskedastische, normalverteilte Residuen handelt, nicht beeinflussen. Der Normal-Q-Q-Plot weist erneut auf eine gute Anpassung an eine Normalverteilung hin. Der Scale-Location-Plot zeigt eine horizontale Linie, die auf Homoskedastizität hindeutet, und keine erkennbaren Muster. Wie im vorherigen Modell sind im Residual-vs-Leverage-Plot keine einflussreichen Punkte außerhalb der Cook'schen Entfernung wahrnehmbar.
+
+3.  Da Preis eine positive Variable ist, schätzen Sie ein verallgemeinertes lineares Modell mit den Variablen aus Punkt 2, indem Sie family=Gamma setzen und die kanonische Linkfunktion einsetzen. Beurteilen Sie die Anpassung dieses Modells und führen Sie die Residualanalyse durch. Vergleichen Sie dieses Modell mit dem Modell aus Punkt 2 mit einem geeigneten Kriterium. Welches Modell passt die Daten besser an? Interpretieren Sie die geschätzten Koeffizienten. (6 Punkte)
+
+
+```{r}
+library(rsq)
+
+model3 <- glm(Price ~ HouseAge + Distance + NumberStores + HouseAge_sq + Distance_sq, data = data, family = Gamma(link = "log"))
+summary(model3)
+rsq(model3)
+```
+
+Für diese Wahl von Modell sind alle Kovariablen signifikant. Desweiteren erkennen wir einen
+moderaten Abfall im R2 Score auf 0.459. Alle Kovariablen haben nur wenig Einfluss auf den Preis. Wobei in diesem Modell die Anzahl an Läden an Einfluss verliert und auf einem Level mit 
+Alter des Hauses ist. Desweiteren ist die Distanz immer noch negativ beeinflussend und durch
+die Quadrierung ist der Einfluss von den beiden neuen Kovariablen aus Teil 2
+positiv.
+
+
+```{r}
+plot(model3)
+qqnorm(resid(model3))
+qqline(resid(model3))
+```
+
+Der Residual-vs-Fitted-Plot zeigt, dass die Residuen des Modells symmetrisch um die Null-Linie verteilt sind und keine Anzeichen für eine Veränderung in der Varianz aufweisen. Dies lässt den Schluss zu, dass das Modell eine homoskedastische Fehlerstruktur und eine lineare Beziehung zwischen den Variablen aufweist.
+
+Beim Normal Q-Q-Plot ist zu sehen, dass der Großteil der Daten gut an das Modell angepasst ist. Allerdings zeigen die Residuen an beiden Enden Abweichungen von den theoretischen Quantilen einer Normalverteilung.
+
+Im Scale-Location-Diagramm ist eine annähernd horizontale Linie zu erkennen, was auf eine homoskedastische Fehlerstruktur hinweist. Es sind keine weiteren Muster in den Residuen zu erkennen.
+
+Das Residuen gegen Hebelwerte-Diagramm zeigt, dass keine Ausreißerpunkte erkennbar sind, die außerhalb des Cook-Abstands liegen und daher einen großen Einfluss auf das Modell haben könnten.
+
+Basierend auf dem geringeren R2 score und Kovariabel Einflüssen würde ich das 
+zweite Modell bevorzugen, welches die Daten besser anpasst.
